@@ -65,7 +65,7 @@ export default async function handler(req, res) {
     if (body.type === 'confirmation') {
         console.log('✅ [CONFIRMATION] ВК запросил подтверждение адреса. Отправляем строку.');
         // Убедитесь, что строка ниже ТОЧНО совпадает с той, что показывает ВК в настройках!
-        return res.status(200).send("8203be3a"); 
+        return res.status(200).send("2a6b470d"); 
     }
 
     // 2. Передаем событие в vk-io
