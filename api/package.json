@@ -1,0 +1,9 @@
+{
+  "name": "vk-bober",
+  "version": "1.0.0",
+  "description": "VK bot on Vercel",
+  "main": "api/bot.js",
+  "dependencies": {
+    "vk-io": "^4.8.4"
+  }
+}
