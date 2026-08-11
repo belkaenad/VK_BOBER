@@ -3,7 +3,7 @@ const { google } = require('googleapis');
 const fs = require('fs');
 const path = require('path');
 
-// === КОНФИГУРАЦИЯ ===
+// === КОНФИГУРАЦИЯ ===  тест
 const VK_TOKEN = process.env.VK_TOKEN;
 const CONFIRMATION_TOKEN = process.env.VK_CONFIRMATION_TOKEN;
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
