@@ -1,14 +1,8 @@
 const { VK, Keyboard, getRandomId } = require('vk-io');
-const { google } = require('googleapis');
-const fs = require('fs');
-const path = require('path');
 
-// === КОНФИГУРАЦИЯ ===  тест
+// === НАСТРОЙКИ ===
 const VK_TOKEN = process.env.VK_TOKEN;
-const CONFIRMATION_TOKEN = "c20dfc20";
-const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
-const SHEET_NOTES = 'notes';
-const SHEET_STATS = 'stats';
+const CONFIRMATION_TOKEN = process.env.VK_CONFIRMATION_TOKEN;
 
 // === ИНИЦИАЛИЗАЦИЯ VK ===
 const vk = new VK({
@@ -16,93 +10,17 @@ const vk = new VK({
   apiVersion: '5.199',
 });
 
-// === СОСТОЯНИЕ ИГРЫ (в памяти, сбрасывается при рестарте функции) ===
-const gameStates = new Map(); // userId -> { number: 42, attempts: 3 }
+// Состояние игры: userId -> { number, attempts }
+const gameStates = new Map();
 
-// === GOOGLE SHEETS ===
-async function getAuth() {
-  const credentials = JSON.parse(
-    fs.readFileSync(path.join(process.cwd(), 'service-account.json'), 'utf8')
-  );
-  return new google.auth.GoogleAuth({
-    credentials,
-    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+// === ВСПОМОГАТЕЛЬНАЯ ОТПРАВКА ===
+async function send(peerId, message, keyboard) {
+  await vk.api.messages.send({
+    peer_id: peerId,
+    message,
+    random_id: getRandomId(),
+    ...(keyboard ? { keyboard } : {}),
   });
-}
-
-async function ensureSheet(sheetName) {
-  const auth = await getAuth();
-  const sheets = google.sheets({ version: 'v4', auth });
-  try {
-    await sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `${sheetName}!A1`,
-    });
-  } catch {
-    await sheets.spreadsheets.batchUpdate({
-      spreadsheetId: SPREADSHEET_ID,
-      requestBody: {
-        requests: [{ addSheet: { properties: { title: sheetName } } }],
-      },
-    });
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `${sheetName}!A1:D1`,
-      valueInputOption: 'USER_ENTERED',
-      requestBody: { values: [['Дата', 'User ID', 'Действие', 'Данные']] },
-    });
-  }
-}
-
-async function logAction(userId, action, data = '') {
-  try {
-    await ensureSheet(SHEET_STATS);
-    const auth = await getAuth();
-    const sheets = google.sheets({ version: 'v4', auth });
-    await sheets.spreadsheets.values.append({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `${SHEET_STATS}!A:D`,
-      valueInputOption: 'USER_ENTERED',
-      requestBody: {
-        values: [[new Date().toISOString(), userId, action, data]],
-      },
-    });
-  } catch (err) {
-    console.error('Ошибка логирования:', err.message);
-  }
-}
-
-async function addNote(userId, text) {
-  await ensureSheet(SHEET_NOTES);
-  const auth = await getAuth();
-  const sheets = google.sheets({ version: 'v4', auth });
-  await sheets.spreadsheets.values.append({
-    spreadsheetId: SPREADSHEET_ID,
-    range: `${SHEET_NOTES}!A:D`,
-    valueInputOption: 'USER_ENTERED',
-    requestBody: {
-      values: [[new Date().toISOString(), userId, 'add', text]],
-    },
-  });
-}
-
-async function getNotes(userId) {
-  try {
-    await ensureSheet(SHEET_NOTES);
-    const auth = await getAuth();
-    const sheets = google.sheets({ version: 'v4', auth });
-    const result = await sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `${SHEET_NOTES}!A:D`,
-    });
-    const rows = result.data.values || [];
-    return rows
-      .slice(1) // пропускаем шапку
-      .filter((row) => Number(row[1]) === userId && row[2] === 'add')
-      .map((row) => ({ date: row[0], text: row[3] }));
-  } catch {
-    return [];
-  }
 }
 
 // === КЛАВИАТУРЫ ===
@@ -116,15 +34,9 @@ function mainMenuKeyboard() {
     })
     .row()
     .textButton({
-      label: '📝 Мои заметки',
-      payload: { cmd: 'notes_list' },
+      label: '🎲 Случайное число',
+      payload: { cmd: 'random' },
       color: Keyboard.PRIMARY_COLOR,
-    })
-    .row()
-    .textButton({
-      label: '➕ Добавить заметку',
-      payload: { cmd: 'notes_add' },
-      color: Keyboard.SECONDARY_COLOR,
     })
     .row()
     .textButton({
@@ -136,7 +48,6 @@ function mainMenuKeyboard() {
 
 function gameKeyboard() {
   const builder = Keyboard.builder().inline(true);
-  // Кнопки с числами 1-5
   for (let i = 1; i <= 5; i++) {
     builder.textButton({
       label: String(i),
@@ -172,50 +83,40 @@ function backKeyboard() {
 
 // === ОБРАБОТЧИКИ ===
 async function handleMainMenu(peerId) {
-  await vk.api.messages.send({
-    peer_id: peerId,
-    message: '👋 Главное меню. Что хочешь сделать?',
-    keyboard: mainMenuKeyboard(),
-    random_id: getRandomId(),
-  });
+  await send(peerId, '👋 Главное меню. Что хочешь сделать?', mainMenuKeyboard());
 }
 
 async function handleHelp(peerId) {
-  await vk.api.messages.send({
-    peer_id: peerId,
-    message:
-      '🤖 *Что я умею:*\n\n' +
-      '🎮 *Игра "Угадай число"* — я загадал число от 1 до 10, угадай!\n' +
-      '📝 *Заметки* — сохраняй важные мысли, они хранятся в Google Таблице\n' +
-      '📊 *Статистика* — все твои действия логируются\n\n' +
-      'Нажимай на кнопки ниже 👇',
-    keyboard: backKeyboard(),
-    random_id: getRandomId(),
-  });
+  await send(
+    peerId,
+    '🤖 *Что я умею:*\n\n' +
+      '🎮 *Угадай число* — я загадаю число от 1 до 10, у тебя 3 попытки!\n' +
+      '🎲 *Случайное число* — просто выдам рандомное число\n\n' +
+      'Нажимай на кнопки 👇',
+    backKeyboard()
+  );
+}
+
+async function handleRandom(peerId) {
+  const num = Math.floor(Math.random() * 100) + 1;
+  await send(peerId, `🎲 Твоё случайное число: *${num}*`, backKeyboard());
 }
 
 async function handleGameStart(userId, peerId) {
   const secret = Math.floor(Math.random() * 10) + 1;
   gameStates.set(userId, { number: secret, attempts: 3 });
-  await vk.api.messages.send({
-    peer_id: peerId,
-    message:
-      '🎲 Я загадал число от *1 до 10*. У тебя 3 попытки!\n' +
-      'Нажми на число, которое считаешь правильным:',
-    keyboard: gameKeyboard(),
-    random_id: getRandomId(),
-  });
+  await send(
+    peerId,
+    '🎲 Я загадал число от *1 до 10*. У тебя 3 попытки!\nНажми на число:',
+    gameKeyboard()
+  );
 }
 
 async function handleGameGuess(userId, peerId, guess) {
   const state = gameStates.get(userId);
+
   if (!state) {
-    await vk.api.messages.send({
-      peer_id: peerId,
-      message: 'Игра не начата. Нажми "Играть" в меню.',
-      keyboard: backKeyboard(),
-      random_id: getRandomId(),
-    });
+    await send(peerId, 'Игра не начата. Нажми "Играть" в меню.', backKeyboard());
     return;
   }
 
@@ -223,93 +124,26 @@ async function handleGameGuess(userId, peerId, guess) {
 
   if (guess === state.number) {
     gameStates.delete(userId);
-    await vk.api.messages.send({
-      peer_id: peerId,
-      message: `🎉 Победа! Ты угадал число *${state.number}*! Поздравляю!`,
-      keyboard: backKeyboard(),
-      random_id: getRandomId(),
-    });
-    await logAction(userId, 'game_win', `number=${state.number}`);
+    await send(peerId, `🎉 Победа! Ты угадал число *${state.number}*!`, backKeyboard());
     return;
   }
 
   if (state.attempts <= 0) {
     gameStates.delete(userId);
-    await vk.api.messages.send({
-      peer_id: peerId,
-      message: `😢 Попытки закончились. Я загадал число *${state.number}*.`,
-      keyboard: backKeyboard(),
-      random_id: getRandomId(),
-    });
-    await logAction(userId, 'game_lose', `number=${state.number}`);
+    await send(peerId, `😢 Попытки закончились. Я загадал число *${state.number}*.`, backKeyboard());
     return;
   }
 
   const hint = guess < state.number ? '⬆️ Больше' : '⬇️ Меньше';
-  await vk.api.messages.send({
-    peer_id: peerId,
-    message: `${hint}. Осталось попыток: *${state.attempts}*. Попробуй ещё:`,
-    keyboard: gameKeyboard(),
-    random_id: getRandomId(),
-  });
-  await logAction(userId, 'game_guess', `guess=${guess}`);
+  await send(peerId, `${hint}. Осталось попыток: *${state.attempts}*`, gameKeyboard());
 }
 
-async function handleNotesList(userId, peerId) {
-  const notes = await getNotes(userId);
-  if (notes.length === 0) {
-    await vk.api.messages.send({
-      peer_id: peerId,
-      message: '📭 У тебя пока нет заметок. Добавь первую!',
-      keyboard: backKeyboard(),
-      random_id: getRandomId(),
-    });
-    return;
-  }
-  const list = notes
-    .slice(-10) // последние 10
-    .map((n, i) => `${i + 1}. ${n.text}`)
-    .join('\n');
-  await vk.api.messages.send({
-    peer_id: peerId,
-    message: `📝 *Твои заметки:*\n\n${list}`,
-    keyboard: backKeyboard(),
-    random_id: getRandomId(),
-  });
-}
-
-async function handleNotesAdd(userId, peerId) {
-  await vk.api.messages.send({
-    peer_id: peerId,
-    message: '✏️ Напиши заметку следующим сообщением (просто отправь текст):',
-    random_id: getRandomId(),
-  });
-  gameStates.set(`note_${userId}`, { waiting: true });
-}
-
-// === ГЛАВНЫЙ ОБРАБОТЧИК ===
+// === НОВОЕ СООБЩЕНИЕ ===
 vk.updates.on('message_new', async (context) => {
-  const { peerId, senderId, text } = context;
-
-  // Если ждём заметку
-  if (gameStates.get(`note_${senderId}`)?.waiting) {
-    gameStates.delete(`note_${senderId}`);
-    await addNote(senderId, text || '(пусто)');
-    await vk.api.messages.send({
-      peer_id: peerId,
-      message: '✅ Заметка сохранена!',
-      keyboard: backKeyboard(),
-      random_id: getRandomId(),
-    });
-    await logAction(senderId, 'note_add', text);
-    return;
-  }
-
-  await logAction(senderId, 'message', text || '');
-  await handleMainMenu(peerId);
+  await handleMainMenu(context.peerId);
 });
 
-// === ОБРАБОТКА НАЖАТИЙ НА INLINE-КНОПКИ ===
+// === НАЖАТИЕ НА INLINE-КНОПКУ ===
 vk.updates.on('message_event', async (context) => {
   const { peerId, userId, payload } = context;
   if (!payload || !payload.cmd) return;
@@ -322,6 +156,9 @@ vk.updates.on('message_event', async (context) => {
       case 'help':
         await handleHelp(peerId);
         break;
+      case 'random':
+        await handleRandom(peerId);
+        break;
       case 'game_start':
         await handleGameStart(userId, peerId);
         break;
@@ -330,28 +167,15 @@ vk.updates.on('message_event', async (context) => {
         break;
       case 'game_cancel':
         gameStates.delete(userId);
-        await vk.api.messages.send({
-          peer_id: peerId,
-          message: 'Игра отменена.',
-          keyboard: backKeyboard(),
-          random_id: getRandomId(),
-        });
-        break;
-      case 'notes_list':
-        await handleNotesList(userId, peerId);
-        break;
-      case 'notes_add':
-        await handleNotesAdd(userId, peerId);
+        await send(peerId, 'Игра отменена.', backKeyboard());
         break;
     }
-    // Отвечаем ВК, что событие обработано
-    await context.ok();
   } catch (err) {
-    console.error('Ошибка message_event:', err.message);
+    console.error('Ошибка обработки кнопки:', err.message);
   }
 });
 
-// === WEBHOOK HANDLER ===
+// === WEBHOOK ===
 module.exports = async (req, res) => {
   if (req.method !== 'POST') return res.status(405).send('Method Not Allowed');
 
@@ -366,6 +190,7 @@ module.exports = async (req, res) => {
 
   if (!body) return res.status(200).send('ok');
 
+  // Подтверждение сервера для ВК
   if (body.type === 'confirmation') {
     return res.status(200).send(CONFIRMATION_TOKEN);
   }
