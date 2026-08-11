@@ -5,7 +5,7 @@ const path = require('path');
 
 // === КОНФИГУРАЦИЯ ===  тест
 const VK_TOKEN = process.env.VK_TOKEN;
-const CONFIRMATION_TOKEN = process.env.VK_CONFIRMATION_TOKEN;
+const CONFIRMATION_TOKEN = "c20dfc20";
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
 const SHEET_NOTES = 'notes';
 const SHEET_STATS = 'stats';
