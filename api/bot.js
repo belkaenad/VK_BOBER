@@ -175,14 +175,33 @@ vk.updates.on('message_new', async (context) => {
 });
 
 // === НАЖАТИЕ НА КНОПКУ ===
+async function answerMessageEvent(context, text = 'Готово') {
+  try {
+    if (typeof context.answer === 'function') {
+      await context.answer({ text });
+    } else {
+      await vk.api.messages.sendMessageEventAnswer({
+        peer_id: context.peerId,
+        event_id: context.eventId,
+        user_id: context.userId,
+        event_data: JSON.stringify({ type: 'show_snackbar', text }),
+      });
+    }
+
+    console.log(`✅ [EVENT ANSWERED] eventId=${context.eventId}`);
+  } catch (err) {
+    console.error(`❌ [EVENT ANSWER ERROR] ${err.message}`);
+  }
+}
+
 vk.updates.on('message_event', async (context) => {
   console.log(`🔘 [message_event] peerId=${context.peerId} | eventId=${context.eventId}`);
 
   const cmdPayload = context.eventPayload;
   if (!cmdPayload || !cmdPayload.cmd) return;
 
+  await answerMessageEvent(context);
   await handleCommand(context.peerId, context.userId, cmdPayload);
-  // ОТВЕЧАТЬ НА СОБЫТИЕ БОЛЬШЕ НЕ НУЖНО — ВК сам отпустит кнопку через 10-15 сек
 });
 
 // === WEBHOOK ===
