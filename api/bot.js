@@ -8,7 +8,7 @@ const vk = new VK({
   apiVersion: '5.199',
 });
 
-// === ОТПРАВКА С ЛОГАМИ ===
+// === ОТПРАВКА ===
 async function send(peerId, message, keyboard) {
   const payload = { peer_id: peerId, message, random_id: getRandomId() };
   if (keyboard) payload.keyboard = keyboard;
@@ -23,14 +23,14 @@ async function send(peerId, message, keyboard) {
   }
 }
 
-// === "ЗАКРЫТИЕ" CALLBACK-КНОПКИ (вместо context.ok()) ===
-async function answerEvent(context, text = '✅ Готово') {
+// === ЗАКРЫТИЕ КНОПКИ БЕЗ СНЕКБАРА ===
+async function answerEvent(context) {
   try {
     await vk.api.messages.sendMessageEventAnswer({
       event_id: context.eventId,
       user_id: context.userId,
       peer_id: context.peerId,
-      event_data: JSON.stringify({ type: 'show_snackbar', text }),
+      event_data: JSON.stringify({ type: 'dont_notify' }), // Без всплывающих окон!
     });
   } catch (e) {
     console.error('Ошибка ответа на событие:', e.message);
@@ -60,49 +60,31 @@ function mainMenuKeyboard() {
     });
 }
 
-// ИСПРАВЛЕНО: максимум 4 кнопки в строке!
+// ГАРАНТИРОВАННО МЕНЬШЕ ЛИМИТОВ: 3 кнопки в ряд
 function gameKeyboard(secret, attempts) {
   const builder = Keyboard.builder().inline(true);
 
-  // Ряд 1: цифры 1-4
-  for (let i = 1; i <= 4; i++) {
-    builder.callbackButton({
-      label: String(i),
-      payload: { cmd: 'game_guess', guess: i, secret, attempts },
-      color: Keyboard.PRIMARY_COLOR,
-    });
-  }
+  // Ряд 1: 1, 2, 3
+  builder.callbackButton({ label: '1', payload: { cmd: 'game_guess', guess: 1, secret, attempts }, color: Keyboard.PRIMARY_COLOR });
+  builder.callbackButton({ label: '2', payload: { cmd: 'game_guess', guess: 2, secret, attempts }, color: Keyboard.PRIMARY_COLOR });
+  builder.callbackButton({ label: '3', payload: { cmd: 'game_guess', guess: 3, secret, attempts }, color: Keyboard.PRIMARY_COLOR });
   builder.row();
 
-  // Ряд 2: цифры 5-8
-  for (let i = 5; i <= 8; i++) {
-    builder.callbackButton({
-      label: String(i),
-      payload: { cmd: 'game_guess', guess: i, secret, attempts },
-      color: Keyboard.PRIMARY_COLOR,
-    });
-  }
+  // Ряд 2: 4, 5, 6
+  builder.callbackButton({ label: '4', payload: { cmd: 'game_guess', guess: 4, secret, attempts }, color: Keyboard.PRIMARY_COLOR });
+  builder.callbackButton({ label: '5', payload: { cmd: 'game_guess', guess: 5, secret, attempts }, color: Keyboard.PRIMARY_COLOR });
+  builder.callbackButton({ label: '6', payload: { cmd: 'game_guess', guess: 6, secret, attempts }, color: Keyboard.PRIMARY_COLOR });
   builder.row();
 
-  // Ряд 3: цифры 9-10
-  builder.callbackButton({
-    label: '9',
-    payload: { cmd: 'game_guess', guess: 9, secret, attempts },
-    color: Keyboard.PRIMARY_COLOR,
-  });
-  builder.callbackButton({
-    label: '10',
-    payload: { cmd: 'game_guess', guess: 10, secret, attempts },
-    color: Keyboard.PRIMARY_COLOR,
-  });
+  // Ряд 3: 7, 8, 9
+  builder.callbackButton({ label: '7', payload: { cmd: 'game_guess', guess: 7, secret, attempts }, color: Keyboard.PRIMARY_COLOR });
+  builder.callbackButton({ label: '8', payload: { cmd: 'game_guess', guess: 8, secret, attempts }, color: Keyboard.PRIMARY_COLOR });
+  builder.callbackButton({ label: '9', payload: { cmd: 'game_guess', guess: 9, secret, attempts }, color: Keyboard.PRIMARY_COLOR });
   builder.row();
 
-  // Ряд 4: отмена
-  builder.callbackButton({
-    label: '❌ Отмена',
-    payload: { cmd: 'game_cancel' },
-    color: Keyboard.NEGATIVE_COLOR,
-  });
+  // Ряд 4: 10 и Отмена
+  builder.callbackButton({ label: '10', payload: { cmd: 'game_guess', guess: 10, secret, attempts }, color: Keyboard.PRIMARY_COLOR });
+  builder.callbackButton({ label: '❌ Отмена', payload: { cmd: 'game_cancel' }, color: Keyboard.NEGATIVE_COLOR });
 
   return builder;
 }
@@ -169,7 +151,7 @@ async function handleGameGuess(peerId, cmdPayload) {
   );
 }
 
-// === ОБЩИЙ ОБРАБОТЧИК КОМАНД ===
+// === ОБЩИЙ ОБРАБОТЧИК ===
 async function handleCommand(peerId, userId, cmdPayload) {
   console.log(`⚙️ [COMMAND] cmd=${cmdPayload.cmd}`);
 
@@ -193,8 +175,6 @@ async function handleCommand(peerId, userId, cmdPayload) {
       case 'game_cancel':
         await send(peerId, 'Игра отменена.', backKeyboard());
         break;
-      default:
-        console.log(`⚠️ [UNKNOWN] cmd=${cmdPayload.cmd}`);
     }
   } catch (err) {
     console.error('❌ [COMMAND ERROR]', err.message);
@@ -203,13 +183,9 @@ async function handleCommand(peerId, userId, cmdPayload) {
 
 // === НОВОЕ СООБЩЕНИЕ ===
 vk.updates.on('message_new', async (context) => {
-  console.log('═'.repeat(60));
-  console.log(`📨 [message_new] peerId=${context.peerId} | senderId=${context.senderId}`);
-  console.log(`   text="${context.text}"`);
-  console.log('═'.repeat(60));
+  console.log(`📨 [message_new] peerId=${context.peerId} | text="${context.text}"`);
 
   const cmdPayload = context.messagePayload;
-
   if (cmdPayload && cmdPayload.cmd) {
     await handleCommand(context.peerId, context.senderId, cmdPayload);
     return;
@@ -218,24 +194,15 @@ vk.updates.on('message_new', async (context) => {
   await handleMainMenu(context.peerId);
 });
 
-// === НАЖАТИЕ НА CALLBACK-КНОПКУ ===
+// === НАЖАТИЕ НА КНОПКУ ===
 vk.updates.on('message_event', async (context) => {
-  console.log('═'.repeat(60));
-  console.log(`🔘 [message_event] peerId=${context.peerId} | userId=${context.userId}`);
-  console.log(`   eventId=${context.eventId}`);
-  console.log('═'.repeat(60));
+  console.log(`🔘 [message_event] peerId=${context.peerId} | eventId=${context.eventId}`);
 
   const cmdPayload = context.eventPayload;
-
-  if (!cmdPayload || !cmdPayload.cmd) {
-    console.log(`❌ [message_event] Нет payload кнопки`);
-    return;
-  }
+  if (!cmdPayload || !cmdPayload.cmd) return;
 
   await handleCommand(context.peerId, context.userId, cmdPayload);
-
-  // ИСПРАВЛЕНО: закрываем кнопку через API (вместо context.ok())
-  await answerEvent(context, '✅');
+  await answerEvent(context);
 });
 
 // === WEBHOOK ===
@@ -247,8 +214,6 @@ module.exports = async (req, res) => {
     try { body = JSON.parse(body); } catch { return res.status(200).send('ok'); }
   }
   if (!body) return res.status(200).send('ok');
-
-  console.log(`📦 [WEBHOOK] type=${body.type} | group_id=${body.group_id}`);
 
   if (body.type === 'confirmation') {
     return res.status(200).send(CONFIRMATION_TOKEN);
