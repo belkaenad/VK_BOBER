@@ -127,11 +127,84 @@ async function handleGameGuess(peerId, cmdPayload) {
   const hint = guess < secret ? '⬆️ Больше' : '⬇️ Меньше';
   await send(
     peerId,
-    `❌ Неверно! ${hint}. Осталось попыток: *${attemptsLeft}*.\nПопробуй ещё раз:`,
+    `${hint}. Осталось попыток: *${attemptsLeft}*`,
     gameKeyboard(secret, attemptsLeft)
   );
 }
 
-async function handleGameCancel(peerId) {
-  await send(peerId, '❌ Игра отменена.', backKeyboard());
+// === ОБЩИЙ ОБРАБОТЧИК ===
+async function handleCommand(peerId, userId, cmdPayload) {
+  console.log(`⚙️ [COMMAND] cmd=${cmdPayload.cmd}`);
+
+  try {
+    switch (cmdPayload.cmd) {
+      case 'menu':
+        await handleMainMenu(peerId);
+        break;
+      case 'help':
+        await handleHelp(peerId);
+        break;
+      case 'random':
+        await handleRandom(peerId);
+        break;
+      case 'game_start':
+        await handleGameStart(peerId);
+        break;
+      case 'game_guess':
+        await handleGameGuess(peerId, cmdPayload);
+        break;
+      case 'game_cancel':
+        await send(peerId, 'Игра отменена.', backKeyboard());
+        break;
+    }
+  } catch (err) {
+    console.error('❌ [COMMAND ERROR]', err.message);
+  }
 }
+
+// === НОВОЕ СООБЩЕНИЕ ===
+vk.updates.on('message_new', async (context) => {
+  console.log(`📨 [message_new] peerId=${context.peerId} | text="${context.text}"`);
+
+  const cmdPayload = context.messagePayload;
+  if (cmdPayload && cmdPayload.cmd) {
+    await handleCommand(context.peerId, context.senderId, cmdPayload);
+    return;
+  }
+
+  await handleMainMenu(context.peerId);
+});
+
+// === НАЖАТИЕ НА КНОПКУ ===
+vk.updates.on('message_event', async (context) => {
+  console.log(`🔘 [message_event] peerId=${context.peerId} | eventId=${context.eventId}`);
+
+  const cmdPayload = context.eventPayload;
+  if (!cmdPayload || !cmdPayload.cmd) return;
+
+  await handleCommand(context.peerId, context.userId, cmdPayload);
+  // ОТВЕЧАТЬ НА СОБЫТИЕ БОЛЬШЕ НЕ НУЖНО — ВК сам отпустит кнопку через 10-15 сек
+});
+
+// === WEBHOOK ===
+module.exports = async (req, res) => {
+  if (req.method !== 'POST') return res.status(405).send('Method Not Allowed');
+
+  let body = req.body;
+  if (typeof body === 'string') {
+    try { body = JSON.parse(body); } catch { return res.status(200).send('ok'); }
+  }
+  if (!body) return res.status(200).send('ok');
+
+  if (body.type === 'confirmation') {
+    return res.status(200).send(CONFIRMATION_TOKEN);
+  }
+
+  try {
+    await vk.updates.handleWebhookUpdate(body);
+  } catch (err) {
+    console.error('❌ [WEBHOOK ERROR]', err.message);
+  }
+
+  res.status(200).send('ok');
+};
