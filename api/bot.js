@@ -179,13 +179,15 @@ async function answerMessageEvent(context, text = 'Готово') {
   try {
     if (typeof context.answer === 'function') {
       await context.answer({ text });
-    } else {
+    } else if (typeof vk.api.messages.sendMessageEventAnswer === 'function') {
       await vk.api.messages.sendMessageEventAnswer({
         peer_id: context.peerId,
         event_id: context.eventId,
         user_id: context.userId,
-        event_data: JSON.stringify({ type: 'show_snackbar', text }),
+        event_data: { type: 'show_snackbar', text },
       });
+    } else {
+      console.warn(`⚠️ [EVENT ANSWER] no answer method available for eventId=${context.eventId}`);
     }
 
     console.log(`✅ [EVENT ANSWERED] eventId=${context.eventId}`);
