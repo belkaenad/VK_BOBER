@@ -8,14 +8,28 @@ const vk = new VK({
   apiVersion: '5.199',
 });
 
-// === ОТПРАВКА СООБЩЕНИЯ ===
+// === ОТПРАВКА СООБЩЕНИЯ С ЛОГИРОВАНИЕМ ===
 async function send(peerId, message, keyboard) {
-  await vk.api.messages.send({
+  const payload = {
     peer_id: peerId,
     message,
     random_id: getRandomId(),
-    ...(keyboard ? { keyboard } : {}),
-  });
+  };
+  
+  if (keyboard) {
+    payload.keyboard = keyboard;
+  }
+  
+  console.log(`📤 [SEND] peerId=${peerId} | message="${message.substring(0, 50)}..." | hasKeyboard=${!!keyboard}`);
+  
+  try {
+    const result = await vk.api.messages.send(payload);
+    console.log(`✅ [SEND OK] messageId=${result}`);
+    return result;
+  } catch (err) {
+    console.error(`❌ [SEND ERROR] peerId=${peerId} | error=${err.message}`);
+    throw err;
+  }
 }
 
 // === КЛАВИАТУРЫ ===
@@ -41,8 +55,6 @@ function mainMenuKeyboard() {
     });
 }
 
-// Состояние игры (secret и attempts) хранится ПРЯМО В КНОПКАХ —
-// так игра работает на Vercel без памяти между запросами
 function gameKeyboard(secret, attempts) {
   const builder = Keyboard.builder().inline(true);
   for (let i = 1; i <= 5; i++) {
@@ -80,10 +92,12 @@ function backKeyboard() {
 
 // === ОБРАБОТЧИКИ ===
 async function handleMainMenu(peerId) {
+  console.log(`🏠 [HANDLER] handleMainMenu | peerId=${peerId}`);
   await send(peerId, '👋 Главное меню. Что хочешь сделать?', mainMenuKeyboard());
 }
 
 async function handleHelp(peerId) {
+  console.log(`ℹ️ [HANDLER] handleHelp | peerId=${peerId}`);
   await send(
     peerId,
     '🤖 *Что я умею:*\n\n🎮 *Угадай число* — загадаю число от 1 до 10, у тебя 3 попытки!\n🎲 *Случайное число* — выдам рандомное число\n\nНажимай на кнопки 👇',
@@ -92,6 +106,7 @@ async function handleHelp(peerId) {
 }
 
 async function handleRandom(peerId) {
+  console.log(`🎲 [HANDLER] handleRandom | peerId=${peerId}`);
   const num = Math.floor(Math.random() * 100) + 1;
   await send(peerId, `🎲 Твоё случайное число: *${num}*`, backKeyboard());
 }
@@ -99,7 +114,7 @@ async function handleRandom(peerId) {
 async function handleGameStart(peerId) {
   const secret = Math.floor(Math.random() * 10) + 1;
   const attempts = 3;
-  console.log(`🎮 [GAME] Новая игра | secret=${secret} | peerId=${peerId}`);
+  console.log(`🎮 [HANDLER] handleGameStart | secret=${secret} | peerId=${peerId}`);
   await send(
     peerId,
     '🎲 Я загадал число от *1 до 10*. У тебя 3 попытки!\nНажми на число:',
@@ -109,20 +124,23 @@ async function handleGameStart(peerId) {
 
 async function handleGameGuess(peerId, payload) {
   const { guess, secret, attempts } = payload;
-  console.log(`🎮 [GAME] Попытка | guess=${guess} | secret=${secret} | attempts=${attempts}`);
+  console.log(`🎮 [HANDLER] handleGameGuess | guess=${guess} | secret=${secret} | attempts=${attempts}`);
 
   if (guess === secret) {
+    console.log(`🎉 [GAME WIN] peerId=${peerId} | secret=${secret}`);
     await send(peerId, `🎉 Победа! Ты угадал число *${secret}*!`, backKeyboard());
     return;
   }
 
   const attemptsLeft = attempts - 1;
   if (attemptsLeft <= 0) {
+    console.log(`😢 [GAME LOSE] peerId=${peerId} | secret=${secret}`);
     await send(peerId, `😢 Попытки закончились. Я загадал число *${secret}*.`, backKeyboard());
     return;
   }
 
   const hint = guess < secret ? '⬆️ Больше' : '⬇️ Меньше';
+  console.log(`💡 [GAME HINT] ${hint} | attemptsLeft=${attemptsLeft}`);
   await send(
     peerId,
     `${hint}. Осталось попыток: *${attemptsLeft}*`,
@@ -132,20 +150,38 @@ async function handleGameGuess(peerId, payload) {
 
 // === НОВОЕ СООБЩЕНИЕ ===
 vk.updates.on('message_new', async (context) => {
-  console.log(
-    `📨 [message_new] peerId=${context.peerId} | senderId=${context.senderId} | text="${context.text}"`
-  );
+  console.log('═'.repeat(60));
+  console.log(`📨 [message_new] ПОЛУЧЕНО СООБЩЕНИЕ`);
+  console.log(`   peerId=${context.peerId} | senderId=${context.senderId}`);
+  console.log(`   text="${context.text}"`);
+  console.log(`   payload=${JSON.stringify(context.payload)}`);
+  console.log('═'.repeat(60));
+  
   await handleMainMenu(context.peerId);
 });
 
 // === НАЖАТИЕ НА INLINE-КНОПКУ ===
 vk.updates.on('message_event', async (context) => {
-  console.log(
-    `🔘 [message_event] peerId=${context.peerId} | userId=${context.userId} | payload=${JSON.stringify(context.payload)}`
-  );
+  console.log('═'.repeat(60));
+  console.log(`🔘 [message_event] НАЖАТИЕ КНОПКИ`);
+  console.log(`   peerId=${context.peerId} | userId=${context.userId}`);
+  console.log(`   eventId=${context.eventId}`);
+  console.log(`   payload=${JSON.stringify(context.payload)}`);
+  console.log('═'.repeat(60));
 
   const { peerId, payload } = context;
-  if (!payload || !payload.cmd) return;
+  
+  if (!payload) {
+    console.log('❌ [ERROR] payload отсутствует');
+    return;
+  }
+  
+  if (!payload.cmd) {
+    console.log(`❌ [ERROR] payload.cmd отсутствует | payload=${JSON.stringify(payload)}`);
+    return;
+  }
+
+  console.log(`⚙️ [PROCESSING] cmd=${payload.cmd}`);
 
   try {
     switch (payload.cmd) {
@@ -165,40 +201,58 @@ vk.updates.on('message_event', async (context) => {
         await handleGameGuess(peerId, payload);
         break;
       case 'game_cancel':
+        console.log(`❌ [GAME CANCEL] peerId=${peerId}`);
         await send(peerId, 'Игра отменена.', backKeyboard());
         break;
+      default:
+        console.log(`⚠️ [UNKNOWN CMD] cmd=${payload.cmd}`);
+        await send(peerId, 'Неизвестная команда.', backKeyboard());
     }
   } catch (err) {
-    console.error('❌ Ошибка обработки кнопки:', err.message);
+    console.error('❌ [HANDLER ERROR]', err.message);
+    console.error(err.stack);
   }
 });
 
 // === WEBHOOK ===
 module.exports = async (req, res) => {
-  if (req.method !== 'POST') return res.status(405).send('Method Not Allowed');
+  if (req.method !== 'POST') {
+    console.log('⚠️ [WEBHOOK] Не POST запрос');
+    return res.status(405).send('Method Not Allowed');
+  }
 
   let body = req.body;
   if (typeof body === 'string') {
     try {
       body = JSON.parse(body);
-    } catch {
+    } catch (e) {
+      console.error('❌ [WEBHOOK] Ошибка парсинга JSON');
       return res.status(200).send('ok');
     }
   }
 
-  if (!body) return res.status(200).send('ok');
+  if (!body) {
+    console.log('⚠️ [WEBHOOK] Пустое тело запроса');
+    return res.status(200).send('ok');
+  }
 
-  // Лог каждого входящего запроса от ВК
-  console.log(`📦 [WEBHOOK] type=${body.type} | group_id=${body.group_id}`);
+  console.log('═'.repeat(60));
+  console.log(`📦 [WEBHOOK] ВХОДЯЩИЙ ЗАПРОС`);
+  console.log(`   type=${body.type} | group_id=${body.group_id}`);
+  console.log(`   object=${JSON.stringify(body.object || {}).substring(0, 200)}...`);
+  console.log('═'.repeat(60));
 
   if (body.type === 'confirmation') {
+    console.log('✅ [WEBHOOK] Отправка токена подтверждения');
     return res.status(200).send(CONFIRMATION_TOKEN);
   }
 
   try {
     await vk.updates.handleWebhookUpdate(body);
+    console.log('✅ [WEBHOOK] Событие успешно обработано');
   } catch (err) {
-    console.error('❌ VK update error:', err.message);
+    console.error('❌ [WEBHOOK ERROR]', err.message);
+    console.error(err.stack);
   }
 
   res.status(200).send('ok');
