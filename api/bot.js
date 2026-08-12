@@ -12,7 +12,7 @@ const vk = new VK({
 async function send(peerId, message, keyboard) {
   const payload = { peer_id: peerId, message, random_id: getRandomId() };
   if (keyboard) payload.keyboard = keyboard;
-  
+
   console.log(`📤 [SEND] peerId=${peerId} | message="${message.substring(0, 50)}..."`);
   try {
     const result = await vk.api.messages.send(payload);
@@ -23,7 +23,21 @@ async function send(peerId, message, keyboard) {
   }
 }
 
-// === КЛАВИАТУРЫ (callbackButton!) ===
+// === "ЗАКРЫТИЕ" CALLBACK-КНОПКИ (вместо context.ok()) ===
+async function answerEvent(context, text = '✅ Готово') {
+  try {
+    await vk.api.messages.sendMessageEventAnswer({
+      event_id: context.eventId,
+      user_id: context.userId,
+      peer_id: context.peerId,
+      event_data: JSON.stringify({ type: 'show_snackbar', text }),
+    });
+  } catch (e) {
+    console.error('Ошибка ответа на событие:', e.message);
+  }
+}
+
+// === КЛАВИАТУРЫ ===
 function mainMenuKeyboard() {
   return Keyboard.builder()
     .inline(true)
@@ -46,9 +60,12 @@ function mainMenuKeyboard() {
     });
 }
 
+// ИСПРАВЛЕНО: максимум 4 кнопки в строке!
 function gameKeyboard(secret, attempts) {
   const builder = Keyboard.builder().inline(true);
-  for (let i = 1; i <= 5; i++) {
+
+  // Ряд 1: цифры 1-4
+  for (let i = 1; i <= 4; i++) {
     builder.callbackButton({
       label: String(i),
       payload: { cmd: 'game_guess', guess: i, secret, attempts },
@@ -56,18 +73,37 @@ function gameKeyboard(secret, attempts) {
     });
   }
   builder.row();
-  for (let i = 6; i <= 10; i++) {
+
+  // Ряд 2: цифры 5-8
+  for (let i = 5; i <= 8; i++) {
     builder.callbackButton({
       label: String(i),
       payload: { cmd: 'game_guess', guess: i, secret, attempts },
       color: Keyboard.PRIMARY_COLOR,
     });
   }
-  builder.row().callbackButton({
+  builder.row();
+
+  // Ряд 3: цифры 9-10
+  builder.callbackButton({
+    label: '9',
+    payload: { cmd: 'game_guess', guess: 9, secret, attempts },
+    color: Keyboard.PRIMARY_COLOR,
+  });
+  builder.callbackButton({
+    label: '10',
+    payload: { cmd: 'game_guess', guess: 10, secret, attempts },
+    color: Keyboard.PRIMARY_COLOR,
+  });
+  builder.row();
+
+  // Ряд 4: отмена
+  builder.callbackButton({
     label: '❌ Отмена',
     payload: { cmd: 'game_cancel' },
     color: Keyboard.NEGATIVE_COLOR,
   });
+
   return builder;
 }
 
@@ -126,13 +162,17 @@ async function handleGameGuess(peerId, cmdPayload) {
   }
 
   const hint = guess < secret ? '⬆️ Больше' : '⬇️ Меньше';
-  await send(peerId, `${hint}. Осталось попыток: *${attemptsLeft}*`, gameKeyboard(secret, attemptsLeft));
+  await send(
+    peerId,
+    `${hint}. Осталось попыток: *${attemptsLeft}*`,
+    gameKeyboard(secret, attemptsLeft)
+  );
 }
 
 // === ОБЩИЙ ОБРАБОТЧИК КОМАНД ===
 async function handleCommand(peerId, userId, cmdPayload) {
   console.log(`⚙️ [COMMAND] cmd=${cmdPayload.cmd}`);
-  
+
   try {
     switch (cmdPayload.cmd) {
       case 'menu':
@@ -158,7 +198,6 @@ async function handleCommand(peerId, userId, cmdPayload) {
     }
   } catch (err) {
     console.error('❌ [COMMAND ERROR]', err.message);
-    console.error(err.stack);
   }
 }
 
@@ -169,16 +208,13 @@ vk.updates.on('message_new', async (context) => {
   console.log(`   text="${context.text}"`);
   console.log('═'.repeat(60));
 
-  // ВАЖНО: payload кнопки для message_new лежит в context.messagePayload
   const cmdPayload = context.messagePayload;
-  
+
   if (cmdPayload && cmdPayload.cmd) {
-    console.log(`🔍 [message_new] Найден payload кнопки: cmd=${cmdPayload.cmd}`);
     await handleCommand(context.peerId, context.senderId, cmdPayload);
     return;
   }
 
-  // Обычное текстовое сообщение
   await handleMainMenu(context.peerId);
 });
 
@@ -189,25 +225,17 @@ vk.updates.on('message_event', async (context) => {
   console.log(`   eventId=${context.eventId}`);
   console.log('═'.repeat(60));
 
-  // ВАЖНО: payload кнопки для message_event лежит в context.eventPayload
   const cmdPayload = context.eventPayload;
-  
+
   if (!cmdPayload || !cmdPayload.cmd) {
     console.log(`❌ [message_event] Нет payload кнопки`);
-    console.log(`   context.payload=${JSON.stringify(context.payload)}`);
     return;
   }
 
-  console.log(`🔍 [message_event] Найден payload кнопки: cmd=${cmdPayload.cmd}`);
-  
   await handleCommand(context.peerId, context.userId, cmdPayload);
-  
-  // ВАЖНО: для callback-кнопок нужно "закрыть" событие, иначе ВК будет показывать loading
-  try {
-    await context.ok(); // Говорим ВК: "я обработал кнопку"
-  } catch (e) {
-    console.error('Ошибка context.ok():', e.message);
-  }
+
+  // ИСПРАВЛЕНО: закрываем кнопку через API (вместо context.ok())
+  await answerEvent(context, '✅');
 });
 
 // === WEBHOOK ===
