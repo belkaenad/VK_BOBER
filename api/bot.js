@@ -184,7 +184,7 @@ async function answerMessageEvent(context, text = 'Готово') {
         peer_id: context.peerId,
         event_id: context.eventId,
         user_id: context.userId,
-        event_data: { type: 'show_snackbar', text },
+        event_data: JSON.stringify({ type: 'show_snackbar', text }),
       });
     } else {
       console.warn(`⚠️ [EVENT ANSWER] no answer method available for eventId=${context.eventId}`);
