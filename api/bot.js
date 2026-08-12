@@ -124,4 +124,14 @@ async function handleGameGuess(peerId, cmdPayload) {
     return;
   }
 
-  const hint = guess < secret ? '⬆️ Больше' : '⬇️
+  const hint = guess < secret ? '⬆️ Больше' : '⬇️ Меньше';
+  await send(
+    peerId,
+    `❌ Неверно! ${hint}. Осталось попыток: *${attemptsLeft}*.\nПопробуй ещё раз:`,
+    gameKeyboard(secret, attemptsLeft)
+  );
+}
+
+async function handleGameCancel(peerId) {
+  await send(peerId, '❌ Игра отменена.', backKeyboard());
+}
