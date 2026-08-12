@@ -177,20 +177,28 @@ vk.updates.on('message_new', async (context) => {
 // === НАЖАТИЕ НА КНОПКУ ===
 async function answerMessageEvent(context, text = 'Готово') {
   try {
+    const action = { type: 'show_snackbar', text };
+
     if (typeof context.answer === 'function') {
-      await context.answer({ text });
-    } else if (typeof vk.api.messages.sendMessageEventAnswer === 'function') {
+      console.log(`ℹ️ [EVENT ANSWER] using context.answer eventId=${context.eventId}`);
+      await context.answer(action);
+      console.log(`✅ [EVENT ANSWERED CONTEXT] eventId=${context.eventId}`);
+      return;
+    }
+
+    if (typeof vk.api.messages.sendMessageEventAnswer === 'function') {
+      console.log(`ℹ️ [EVENT ANSWER] using vk.api.messages.sendMessageEventAnswer eventId=${context.eventId}`);
       await vk.api.messages.sendMessageEventAnswer({
         peer_id: context.peerId,
         event_id: context.eventId,
         user_id: context.userId,
-        event_data: JSON.stringify({ type: 'show_snackbar', text }),
+        event_data: JSON.stringify(action),
       });
-    } else {
-      console.warn(`⚠️ [EVENT ANSWER] no answer method available for eventId=${context.eventId}`);
+      console.log(`✅ [EVENT ANSWERED API] eventId=${context.eventId}`);
+      return;
     }
 
-    console.log(`✅ [EVENT ANSWERED] eventId=${context.eventId}`);
+    console.warn(`⚠️ [EVENT ANSWER] no answer method available for eventId=${context.eventId}`);
   } catch (err) {
     console.error(`❌ [EVENT ANSWER ERROR] ${err.message}`);
   }
