@@ -2,7 +2,7 @@ const { VK, Keyboard, getRandomId } = require('vk-io');
 
 // === НАСТРОЙКИ ===
 const VK_TOKEN = process.env.VK_TOKEN;
-const CONFIRMATION_TOKEN = "c20dfc20"
+const CONFIRMATION_TOKEN = "c20dfc20"// тест
 
 // === ИНИЦИАЛИЗАЦИЯ VK ===
 const vk = new VK({
