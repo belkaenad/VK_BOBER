@@ -65,7 +65,6 @@ function gameKeyboard(secret, attempts) {
   builder.row();
 
   builder.callbackButton({ label: '10', payload: { cmd: 'game_guess', guess: 10, secret, attempts }, color: Keyboard.PRIMARY_COLOR });
-  builder.callbackButton({ label: '❌ Отмена', payload: { cmd: 'game_cancel' }, color: Keyboard.NEGATIVE_COLOR });
 
   return builder;
 }
